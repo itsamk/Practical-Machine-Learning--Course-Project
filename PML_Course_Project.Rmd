@@ -1,0 +1,168 @@
+---
+title: "Practical Machine Learning- Course Project"
+author: "Amol Kankane"
+date: "July 17, 2016"
+output: html_document
+---
+
+#Introduction
+
+The training and test set data for the project is obtained from the following study:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz44K0ocubC
+
+"Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ??? a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)."
+
+#Data
+
+```{r}
+
+# Download data.
+setwd("C:/Users/itsAmK/Desktop/pml")
+training <- "pml-training.csv"
+#download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile=training, method="curl")
+
+
+testing <- "pml-testing.csv"
+#download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile=testing, method="curl")
+
+# Import the data treating empty values as NA.
+
+training <- read.csv(training, na.strings=c("NA",""), header=TRUE)
+colnames_train <- colnames(training)
+testing <- read.csv(testing, na.strings=c("NA",""), header=TRUE)
+colnames_test <- colnames(testing)
+```
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+#Packages Used
+
+The following packages are used in this project and they can be loaded into R with the following code:
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(AppliedPredictiveModeling)
+library(caret)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+```
+
+Eliminating all the features with a Near-Zero-Variance.
+
+```{r}
+nzv <- nearZeroVar(training, saveMetrics=TRUE)
+k <- nzv[,4] == 1
+train_new <- training[,!k]
+
+```
+
+Splitting the dataset into two parts. 70% in the training set. 30% in the testing set.
+
+```{r}
+inTrain <- createDataPartition(y=train_new$classe, p=0.7, list=FALSE)
+myTraining <- train_new[inTrain, ]; myTesting <- train_new[-inTrain, ]
+```
+
+Removing features with more than 70% number of NAs.
+
+```{r}
+myTraining <- myTraining[c(-1)]
+ training_temp <- myTraining
+ for(i in 1:length(myTraining)) { #for every column in the training dataset
+     if( sum( is.na( myTraining[, i] ) ) /nrow(myTraining) >= .7 ) { #if no. of NAs > 70% of total observations
+         for(j in 1:length(training_temp)) {
+             if( length( grep(names(myTraining[i]), names(training_temp)[j]) ) ==1)  { #if the columns are the same:
+                 training_temp <- training_temp[ , -j] #Remove that column
+             }   
+         } 
+     }
+ }
+ myTraining <- training_temp
+ rm(training_temp)
+```
+
+Cleaning the testing Datasets in equivalance to the Training dataset.
+```{r}
+myTesting <- myTesting[colnames(myTraining)]
+testing <- testing[colnames(myTraining[, -58])]
+```
+
+To ensure proper functioning of the Machine Learning algorithms, we coerce them to same class in both the training and the testing set.
+
+```{r}
+for (i in 1:length(testing) ) {
+        for(j in 1:length(myTraining)) {
+        if( length( grep(names(myTraining[i]), names(testing)[j]) ) ==1)  {
+            class(testing[j]) <- class(myTraining[i])
+        }      
+    }      
+}
+#And to make sure Coertion really worked,
+testing <- rbind(myTraining[2, -58] , testing) #note row 2 does not mean anything, this will be removed now:
+testing <- testing[-1,]
+```
+
+#Using Machine Learning algorithms.
+## 1. Decision Trees
+
+Fitting the model
+```{r}
+modFitdt <- rpart(classe ~ ., data=myTraining, method="class")
+fancyRpartPlot(modFitdt) #plotting the decision tree model
+
+```
+
+Predicting on the myTesting dataset
+
+```{r}
+predictionsdt <- predict(modFitdt, myTesting, type = "class")
+confusion_matrix1 <- confusionMatrix(predictionsdt, myTesting$classe) 
+print(confusion_matrix1) #printing the confusion matrix
+```
+
+```{r}
+accuracy <- confusion_matrix1$overall[1]
+Out_of_sample_error = 1-accuracy
+print(unname(Out_of_sample_error))
+
+```
+
+## 2. Random Forests
+
+Fitting the model.
+```{r}
+modFitrf <- randomForest(classe ~. , data=myTraining)
+```
+predicting on the myTesting dataset
+```{r}
+predictionsrf <- predict(modFitrf, myTesting, type = "class")
+confusion_matrix2 <- confusionMatrix(predictionsrf, myTesting$classe)
+print(confusion_matrix2) #printing the confusion matrix
+```
+
+```{r}
+accuracy <- confusion_matrix2$overall[1]
+Out_of_sample_error = 1-accuracy
+print(unname(Out_of_sample_error))
+
+```
+As we can see that more accuracy is obtained using Random Forests. We will be using the model "modFitrf" to predict on the testing set. 
+
+#Generating predictions for the actual test set
+```{r}
+predict_final <- predict(modFitrf, testing, type="class")
+predict_final <- data.frame(predict_final)
+rownames(predict_final) <- 1:nrow(predict_final)
+colnames(predict_final) <- c("predictions")
+print(predict_final)
+```
+
